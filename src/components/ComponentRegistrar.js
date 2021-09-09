@@ -4,6 +4,7 @@ let mergeWebpackConfig = require('../builder/MergeWebpackConfig');
 const { Component } = require('./Component');
 
 let components = [
+    'Group',
     'JavaScript',
     'Preact',
     'React',
