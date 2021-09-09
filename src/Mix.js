@@ -213,6 +213,7 @@ class Mix {
      * Determine if the given config item is truthy.
      *
      * @param {string} tool
+     * @deprecated Please check the mix config directly instead
      */
     isUsing(tool) {
         // @ts-ignore
