@@ -24,6 +24,17 @@ exports.BuildGroup = class BuildGroup {
     }
 
     /**
+     * @internal
+     *
+     * For parallel build mode if we get to it. Probably won't.
+     */
+    async build() {
+        const webpack = require('webpack');
+
+        return await webpack(await this.config());
+    }
+
+    /**
      * Build the webpack configs for this context and all of its children
      *
      * @internal
