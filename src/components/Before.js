@@ -5,7 +5,7 @@ class Before extends Component {
      * @param  {() => void | Promise<void>} callback
      */
     register(callback) {
-        this.mix.listen('init', callback);
+        this.context.mix.listen('init', callback);
     }
 }
 

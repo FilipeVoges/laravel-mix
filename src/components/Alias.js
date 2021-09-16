@@ -22,7 +22,7 @@ module.exports = class Alias extends Component {
         config.resolve.alias = config.resolve.alias || {};
 
         for (const [alias, path] of Object.entries(this.aliases)) {
-            config.resolve.alias[alias] = this.mix.paths.root(path);
+            config.resolve.alias[alias] = this.context.mix.paths.root(path);
         }
 
         return config;

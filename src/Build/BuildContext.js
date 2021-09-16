@@ -37,6 +37,10 @@ exports.BuildContext = class BuildContext {
 
         /** Record<string, any> */
         this.metadata = {};
+
+        // TODO: Do we want an event dispatcher here?
+        // How would we implement mix.before on a per-group basis
+        // Maybe it is only meant to be top-level?
     }
 
     /**

@@ -130,10 +130,8 @@ class Mix {
 
         this.booted = true;
 
-        if (this === Mix.#instance) {
-            // Load .env
-            Dotenv.config();
-        }
+        // Load .env
+        Dotenv.config();
 
         // If we're using Laravel set the public path by default
         if (this.sees('laravel')) {
