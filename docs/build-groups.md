@@ -137,3 +137,14 @@ Handling components/extensions with build groups:
 
 
 4. Either calling mix.extension in a group adds to the top-level / global API or it's an error. Which is it?
+
+# TODO (about build dependencies):
+
+Create two special webpack builds that happen after all other builds
+1. Handles copying assets
+2. Handles manifest generation
+
+Use configuration names & dependencies to make these run after all other builds are complete.
+If we're going to support parallel builds in Mix v7 then we'll have to build this graph ourself.
+However, as long as there are not nested build groups (the group would just get pushed to the top-level)
+then the graph should only ever be two nodes deep.

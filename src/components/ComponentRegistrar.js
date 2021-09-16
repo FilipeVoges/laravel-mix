@@ -67,22 +67,32 @@ class ComponentRegistrar {
     /**
      * Install a component.
      *
+     * @internal
      * @param {import("../../types/component").Component} ComponentDefinition
+     * @return {import("../../types/component").Component}
      */
-    install(ComponentDefinition) {
-        /** @type {import("../../types/component").Component} */
-        let component;
-
+    createComponent(ComponentDefinition) {
         // If we're extending from the internal `Component` class then we provide the mix API object
         if (Component.isPrototypeOf(ComponentDefinition)) {
             // @ts-ignore
             // This API is not finalized which is why we've restricted to to the internal component class for now
-            component = new ComponentDefinition(this.mix);
-        } else if (typeof ComponentDefinition === 'function') {
-            component = new ComponentDefinition();
-        } else {
-            component = ComponentDefinition;
+            return new ComponentDefinition(this.mix);
         }
+
+        if (typeof ComponentDefinition === 'function') {
+            return new ComponentDefinition();
+        }
+
+        return ComponentDefinition;
+    }
+
+    /**
+     * Install a component.
+     *
+     * @param {import("../../types/component").Component} ComponentDefinition
+     */
+    install(ComponentDefinition) {
+        const component = this.createComponent(ComponentDefinition);
 
         this.registerComponent(component);
 

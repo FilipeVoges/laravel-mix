@@ -11,31 +11,24 @@ let Manifest = require('./Manifest');
 let Paths = require('./Paths');
 let WebpackConfig = require('./builder/WebpackConfig');
 let { Resolver } = require('./Resolver');
+const { BuildGroup } = require('./Build/BuildGroup');
 
 /** @typedef {import("./tasks/Task")} Task */
 
-/**
- * @typedef {object} ContextOptions
- * @property {string} name
- */
-
 class Mix {
     /** @type {Mix|null} */
-    static _primary = null;
+    static #instance = null;
 
     /** @type {Record<string, boolean>} */
     static _hasWarned = {};
 
-    /** @type {Mix[]} */
-    static current = [];
+    /** @type {BuildGroup[]} */
+    #current;
 
     /**
      * Create a new instance.
-     * @param {Partial<ContextOptions>} options
      */
-    constructor(options = {}) {
-        this.options = this.resolveOptions(options);
-
+    constructor() {
         /** @type {ReturnType<buildConfig>} */
         this.config = buildConfig(this);
 
@@ -55,11 +48,21 @@ class Mix {
         this.hot = new HotReloading(this);
         this.resolver = new Resolver();
 
+        const defaultGroup = new BuildGroup({
+            name: 'Mix',
+            mix: this,
+            callback: () => {}
+        });
+
+        defaultGroup.context.config = this.config;
+
+        this.#current = [defaultGroup];
+
+        /** @type {BuildGroup[]} */
+        this.groups = [defaultGroup];
+
         /** @type {Task[]} */
         this.tasks = [];
-
-        /** @type {Mix[]} */
-        this.children = [];
 
         this.booted = false;
 
@@ -85,27 +88,15 @@ class Mix {
     }
 
     /**
-     * Create a new instance.
-     * @param {Partial<ContextOptions>} options
-     * @returns {ContextOptions}
-     */
-    resolveOptions(options) {
-        /** @type {ContextOptions} */
-        const defaults = {
-            name: 'Mix'
-        };
-
-        return {
-            ...defaults,
-            ...options
-        };
-    }
-
-    /**
      * @internal
      */
-    static get primary() {
-        return Mix._primary || (Mix._primary = new Mix());
+    static get shared() {
+        if (Mix.#instance) {
+            return Mix.#instance;
+        }
+
+        // @ts-ignore
+        return (Mix.#instance = new Mix());
     }
 
     /**
@@ -121,26 +112,11 @@ class Mix {
             this.boot();
         }
 
-        return await Promise.all(this.buildConfigs());
+        return await Promise.all(this.buildableGroups.map(group => group.config()));
     }
 
-    /**
-     * Build the webpack configs for this context and all of its children
-     *
-     * @internal
-     * @returns {Generator<Promise<import('webpack').Configuration>, any, undefined>}
-     */
-    *buildConfigs() {
-        // We do not want to build this config if it doesn't do anything
-        // This is because it will produce no files but still result in progress output
-        // This is likely not what the user would expect
-        if (this.children.length === 0) {
-            yield this.webpackConfig.build();
-        }
-
-        for (const child of this.children) {
-            yield* child.buildConfigs();
-        }
+    get buildableGroups() {
+        return this.groups.filter(group => group.shouldBeBuilt);
     }
 
     /**
@@ -154,7 +130,7 @@ class Mix {
 
         this.booted = true;
 
-        if (this === Mix._primary) {
+        if (this === Mix.#instance) {
             // Load .env
             Dotenv.config();
         }
@@ -165,7 +141,7 @@ class Mix {
         }
 
         this.listen('init', () => this.hot.record());
-        this.pushCurrent();
+        this.makeCurrent();
 
         return this;
     }
@@ -175,7 +151,6 @@ class Mix {
      */
     async installDependencies() {
         await this.dispatch('internal:gather-dependencies');
-        await this.dispatchToChildren('internal:gather-dependencies');
 
         Dependencies.installQueued();
     }
@@ -190,23 +165,18 @@ class Mix {
 
         this.initialized = true;
 
+        // Set up every group
+        await Promise.all(this.buildableGroups.map(group => group.setup()));
+
+        // And then kick things off
         await this.dispatch('init', this);
-        await this.dispatchToChildren('init', this);
     }
 
     /**
      * @returns {import("../types/index")}
      */
     get api() {
-        if (!this._api) {
-            this._api = this.registrar.installAll();
-
-            // @ts-ignore
-            this._api.inProduction = () => this.config.production;
-        }
-
-        // @ts-ignore
-        return this._api;
+        return this.currentGroup.context.api;
     }
 
     /**
@@ -256,6 +226,7 @@ class Mix {
      * Determine if Mix sees a particular tool or framework.
      *
      * @param {string} tool
+     * @deprecated
      */
     sees(tool) {
         if (tool === 'laravel') {
@@ -269,15 +240,10 @@ class Mix {
      * Determine if the given npm package is installed.
      *
      * @param {string} npmPackage
+     * @deprecated
      */
     seesNpmPackage(npmPackage) {
-        try {
-            require.resolve(npmPackage);
-
-            return true;
-        } catch (e) {
-            return false;
-        }
+        return this.resolver.has(npmPackage);
     }
 
     /**
@@ -306,27 +272,13 @@ class Mix {
      * @param {any | (() => any)}      [data]
      */
     async dispatch(event, data) {
-        return this.whileCurrent(() => {
+        return this.currentGroup.whileCurrent(() => {
             if (typeof data === 'function') {
                 data = data();
             }
 
             return this.dispatcher.fire(event, data);
         });
-    }
-
-    /**
-     * Dispatch the given event.
-     *
-     * @param {string} event
-     * @param {any | (() => any)}      [data]
-     * @internal
-     */
-    async dispatchToChildren(event, data) {
-        const promises = this.children.map(child => child.dispatch(event, data));
-        const results = await Promise.all(promises);
-
-        return results;
     }
 
     /**
@@ -337,57 +289,46 @@ class Mix {
         return this.resolver.get(name);
     }
 
-    /** @internal */
-    pushCurrent() {
-        Mix.current.push(this.makeCurrent());
+    /**
+     * @internal
+     * @param {BuildGroup} group
+     **/
+    pushCurrent(group) {
+        this.#current.push(group.makeCurrent());
     }
 
     /** @internal */
     popCurrent() {
-        Mix.current.pop();
+        if (this.#current.length === 1) {
+            return;
+        }
 
-        const context = Mix.current[Mix.current.length - 1];
+        this.#current.pop();
+        this.currentGroup.makeCurrent();
+    }
 
-        context && context.makeCurrent();
+    /**
+     * @internal
+     * @type {BuildGroup}
+     */
+    get currentGroup() {
+        return this.#current[this.#current.length - 1];
     }
 
     /**
      * @internal
      * @template T
      * @param {string} name
-     * @param {(context: Mix) => T|Promise<T>} callback
+     * @param {import('./Build/BuildGroup').GroupCallback} callback
      */
-    withChild(name, callback) {
-        const context = new Mix({ name }).boot();
-
-        this.children.push(context);
-
-        return context.whileCurrent(callback);
-    }
-
-    /**
-     * @internal
-     * @template T
-     * @param {(context: Mix) => T|Promise<T>} callback
-     */
-    whileCurrent(callback) {
-        this.pushCurrent();
-
-        try {
-            const result = callback(this);
-
-            if (result instanceof Promise) {
-                return result.finally(() => this.popCurrent());
-            }
-
-            this.popCurrent();
-
-            return result;
-        } catch (err) {
-            this.popCurrent();
-
-            throw err;
-        }
+    addGroup(name, callback) {
+        this.groups.push(
+            new BuildGroup({
+                name,
+                mix: this,
+                callback
+            })
+        );
     }
 
     /**
@@ -396,16 +337,10 @@ class Mix {
     makeCurrent() {
         // Set up some globals
 
-        // @ts-ignore
-        global.Config = this.config;
-
-        // @ts-ignore
         global.Mix = this;
-
-        // @ts-ignore
         global.webpackConfig = this.webpackConfig;
 
-        this.chunks.makeCurrent();
+        this.groups[0].makeCurrent();
 
         return this;
     }

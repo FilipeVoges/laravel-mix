@@ -1,14 +1,14 @@
 /**
- * @typedef {(mix: import("../Mix")['api'], context: import("../Mix")) => void} GroupCallback
+ * @typedef {(mix: import("../../types/index"), context: import("../Build/BuildContext").BuildContext) => void} GroupCallback
  */
 
 class Group {
     /**
      *
-     * @param {import('../Mix')} context
+     * @param {import('../Build/BuildContext').BuildContext} context
      */
     constructor(context) {
-        this.parent = context;
+        this.context = context;
     }
 
     /**
@@ -22,13 +22,18 @@ class Group {
             throw new Error('A callback must be passed to mix.group()');
         }
 
+        // TODO: All groups should be registered all the time
+        // The filtering should happen when we get ready to build
+        // This could potentially allow group callbacks to be asynchronous
         const shouldBuild = name === process.env.MIX_GROUP || !process.env.MIX_GROUP;
 
         if (!shouldBuild) {
             return;
         }
 
-        this.parent.withChild(name, context => callback(context.api, context));
+        this.context.mix.addGroup(name, group =>
+            callback(group.context.api, group.context)
+        );
     }
 }
 
